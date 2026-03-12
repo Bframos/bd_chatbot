@@ -1,0 +1,19 @@
+
+postgres_data/
+
+# --- Environment Variables ---
+.env
+
+# --- Docker ---
+.docker/
+*.log
+
+# --- IDEs & OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- SQL Dumps ---
+*.sql.gz
+dump.sql
