@@ -3,6 +3,10 @@ postgres_data/
 
 # --- Environment Variables ---
 .env
+.venv
+venv/
+__pycache__/
+*.pyc
 
 # --- Docker ---
 .docker/
