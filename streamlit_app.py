@@ -1,6 +1,7 @@
-import streamlit as st
-from chatbot import ask, MODEL
 import pandas as pd
+import streamlit as st
+
+from chatbot import MODEL, ask
 
 # ── Page configuration ──
 st.set_page_config(
