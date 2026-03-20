@@ -1,4 +1,0 @@
-1-Se escrever nome de produto de forma diferente (e.g MacBook em vez de MacBook Air M2), ele não chega lá
-    Sol= Usar o ILIKE '%value%
-
-   

@@ -4,30 +4,36 @@ from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 from langchain_community.utilities import SQLDatabase
 from sqlalchemy import text
+import cache
 
 load_dotenv()
 
-# 1. Base de Dados
+# 1. Database configuration
 db_uri = (
     f"postgresql+psycopg2://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
     f"@localhost:5432/{os.getenv('DB_NAME')}"
 )
 db = SQLDatabase.from_uri(db_uri)
+#======================================================================================================================
 
-# 2. Cliente HF — provider="auto" escolhe o melhor provider disponível
-#    (Cerebras, SambaNova, Together AI, etc.) com free tier
+
+# 2. HF client — provider="auto" picks the best available provider
 client = InferenceClient(
     provider="auto",
     api_key=os.getenv("HUGGINGFACE_API_TOKEN"),
 )
-MODEL = "meta-llama/Llama-3.1-8B-Instruct" 
+MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+#======================================================================================================================
 
-# 3. Carregar schema do ficheiro externo
+
+# 3. Load schema from external file
 SCHEMA_FILE = os.path.join(os.path.dirname(__file__), "schema.sql")
 with open(SCHEMA_FILE, "r", encoding="utf-8") as f:
     SCHEMA = f.read()
+#======================================================================================================================
 
-def gerar_sql(pergunta: str) -> str:
+
+def generate_sql(question: str) -> str:
     response = client.chat.completions.create(
         model=MODEL,
         messages=[
@@ -39,12 +45,12 @@ def gerar_sql(pergunta: str) -> str:
                     "Important rules:\n"
                     "- For text fields (names, descriptions, emails), ALWAYS use ILIKE '%value%' instead of =\n"
                     "- Never use exact match (=) for text searches\n\n"
-                    f"Schema:\n{SCHEMA}"
+                    "- When the user asks for 'the most/least/best/worst', never use LIMIT 1 — instead use DENSE_RANK() to handle ties correctly and return all tied results\n"                    f"Schema:\n{SCHEMA}"
                 ),
             },
             {
                 "role": "user",
-                "content": f"Question: {pergunta}\n\nSQL query:"
+                "content": f"Question: {question}\n\nSQL query:"
             }
         ],
         max_tokens=256,
@@ -52,76 +58,90 @@ def gerar_sql(pergunta: str) -> str:
     )
     return response.choices[0].message.content
 
-def extrair_sql(texto: str):
-    match = re.search(r"```sql\s*(.*?)```", texto, re.DOTALL | re.IGNORECASE)
+
+def extract_sql(text: str):
+    match = re.search(r"```sql\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    match = re.search(r"(SELECT|WITH)\s.+?;", texto, re.DOTALL | re.IGNORECASE)
+    match = re.search(r"(SELECT|WITH)\s.+?;", text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(0).strip()
     return None
 
-def executar_query(sql: str):
+
+def execute_query(sql: str):
     engine = db._engine
     with engine.connect() as conn:
         result = conn.execute(text(sql))
-        colunas = list(result.keys())
-        linhas = result.fetchall()
-    return colunas, linhas
+        columns = list(result.keys())
+        rows = result.fetchall()
+    return columns, rows
 
-def formatar_tabela(colunas, linhas) -> str:
-    if not linhas:
-        return "(sem resultados)"
+
+def format_table(columns, rows) -> str:
+    if not rows:
+        return "(no results)"
     col_widths = [
-        max(len(str(c)), max((len(str(r[i])) for r in linhas), default=0))
-        for i, c in enumerate(colunas)
+        max(len(str(c)), max((len(str(r[i])) for r in rows), default=0))
+        for i, c in enumerate(columns)
     ]
     def row_str(row):
         return " | ".join(str(v).ljust(col_widths[i]) for i, v in enumerate(row))
     sep = "-+-".join("-" * w for w in col_widths)
-    return f"{row_str(colunas)}\n{sep}\n" + "\n".join(row_str(r) for r in linhas)
+    return f"{row_str(columns)}\n{sep}\n" + "\n".join(row_str(r) for r in rows)
 
-def perguntar(pergunta: str) -> dict:
+
+def ask(question: str) -> dict:
+    # 1. Check cache first — avoids calling the LLM for repeated questions
+    cached = cache.get(question)
+    if cached:
+        cached["from_cache"] = True
+        return cached
+
+    # 2. Cache miss — go through the full pipeline
     try:
-        raw = gerar_sql(pergunta)
-        sql = extrair_sql(raw)
+        raw = generate_sql(question)
+        sql = extract_sql(raw)
 
         if not sql:
-            return {"sql": None, "colunas": [], "linhas": [], "resposta": raw, "erro": None}
+            return {"sql": None, "columns": [], "rows": [], "answer": raw, "error": None, "from_cache": False}
 
-        colunas, linhas = executar_query(sql)
-        tabela_txt = "\n".join([" | ".join(str(v) for v in row) for row in linhas]) or "(sem resultados)"
+        columns, rows = execute_query(sql)
+        table_txt = "\n".join([" | ".join(str(v) for v in row) for row in rows]) or "(no results)"
 
         resp = client.chat.completions.create(
             model=MODEL,
             messages=[
-                {"role": "system", "content": "You are a helpful assistant. Answer in European Portuguese, concisely."},
-                {"role": "user", "content": f"Pergunta: {pergunta}\nResultado:\n{tabela_txt}\n\nResponde em Português."}
+                {"role": "system", "content": "You are a helpful assistant. Answer in English, concisely."},
+                {"role": "user", "content": f"Question: {question}\nQuery result:\n{table_txt}\n\nAnswer the question clearly and directly."}
             ],
             max_tokens=256,
             temperature=0.3,
         )
-        resposta = resp.choices[0].message.content
-        return {"sql": sql, "colunas": colunas, "linhas": linhas, "resposta": resposta, "erro": None}
+        answer = resp.choices[0].message.content
+        result = {"sql": sql, "columns": columns, "rows": rows, "answer": answer, "error": None, "from_cache": False}
+
+        # 3. Store in cache for future requests
+        cache.set(question, result)
+        return result
 
     except Exception as e:
-        return {"sql": None, "colunas": [], "linhas": [], "resposta": "", "erro": str(e)}
-
+        return {"sql": None, "columns": [], "rows": [], "answer": "", "error": str(e), "from_cache": False}
 
 if __name__ == "__main__":
-    print(f"--- Chatbot SQL · {MODEL} ---")
-    print("(escreve 'sair' para terminar)\n")
+    print(f"--- SQL Chatbot · {MODEL} ---")
+    print("(type 'exit' to quit)\n")
     while True:
         try:
-            pergunta = input("O que queres saber? ").strip()
+            question = input("What do you want to know? ").strip()
         except (KeyboardInterrupt, EOFError):
             break
-        if not pergunta or pergunta.lower() == "sair":
+        if not question or question.lower() == "exit":
             break
-        resultado = perguntar(pergunta)
-        if resultado["erro"]:
-            print(f"\n❌ Erro: {resultado['erro']}\n")
+        result = ask(question)
+        if result["error"]:
+            print(f"\n❌ Error: {result['error']}\n")
         else:
-            if resultado["sql"]:
-                print(f"\n🔍 SQL:\n{resultado['sql']}\n")
-            print(f"💬 {resultado['resposta']}\n")
+            if result["sql"]:
+                print(f"\n🔍 SQL:\n{result['sql']}\n")
+            print(f"💬 {result['answer']}\n")

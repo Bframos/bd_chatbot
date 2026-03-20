@@ -25,5 +25,25 @@ services:
     depends_on:
       - db
 
+  redis:
+      image: redis:7-alpine         
+      container_name: ecommerce_redis_container
+      restart: always
+      ports:
+        - "6379:6379"                
+      volumes:
+        - redis_data:/data           
+      command: redis-server --save 60 1 
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight_container
+    restart: always
+    ports:
+      - "5540:5540"
+    depends_on:
+      - redis    
+  
 volumes:
   postgres_data:
+  redis_data:   

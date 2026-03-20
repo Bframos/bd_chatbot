@@ -1,23 +1,23 @@
 import streamlit as st
-from chatbot import perguntar, MODEL
+from chatbot import ask, MODEL
 import pandas as pd
 
-# ── Configuração da página ──
+# ── Page configuration ──
 st.set_page_config(
     page_title="EcommerceDB Chatbot",
     page_icon="🗄️",
     layout="wide",
 )
 
-# ── Estilo ──
+# ── Styles ──
 st.markdown("""
 <style>
     .stChatMessage { border-radius: 12px; }
-    .sql-block { 
-        background: #1e1e2e; 
+    .sql-block {
+        background: #1e1e2e;
         color: #a6e3a1;
-        padding: 12px 16px; 
-        border-radius: 8px; 
+        padding: 12px 16px;
+        border-radius: 8px;
         font-family: monospace;
         font-size: 13px;
         margin: 8px 0;
@@ -38,7 +38,7 @@ with st.sidebar:
     st.markdown(f'<span class="model-badge">🤖 {MODEL.split("/")[-1]}</span>', unsafe_allow_html=True)
     st.divider()
 
-    st.markdown("**Esquema**")
+    st.markdown("**Schema**")
     with st.expander("categories"):
         st.code("id, name, description")
     with st.expander("products"):
@@ -49,83 +49,83 @@ with st.sidebar:
         st.code("id, customer_id, product_id\nquantity, total_amount, transaction_date")
 
     st.divider()
-    st.markdown("**Sugestões**")
-    sugestoes = [
-        "Quais os produtos com menos de 20 unidades em stock?",
-        "Qual o cliente que mais gastou no total?",
-        "Quantas vendas foram feitas por categoria?",
-        "Lista os 3 produtos mais vendidos.",
+    st.markdown("**Suggestions**")
+    suggestions = [
+        "Which products have less than 20 units in stock?",
+        "Which customer spent the most in total?",
+        "How many sales were made per category?",
+        "List the 3 best-selling products.",
     ]
-    for s in sugestoes:
-        if st.button(s, use_container_width=True):
-            st.session_state["sugestao"] = s
+    for s in suggestions:
+        if st.button(s, width='stretch'):
+            st.session_state["suggestion"] = s
 
     st.divider()
-    if st.button("🗑️ Limpar conversa", use_container_width=True):
+    if st.button("🗑️ Clear conversation", width='stretch'):
         st.session_state.messages = []
         st.rerun()
 
-    show_sql = st.toggle("Mostrar SQL gerado", value=True)
+    show_sql = st.toggle("Show generated SQL", value=True)
 
-# ── Histórico de mensagens ──
+# ── Message history ──
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ── Título ──
-st.title("Assistente de Base de Dados")
-st.caption("Faz perguntas em Português sobre a tua base de dados de ecommerce.")
+# ── Title ──
+st.title("Database Assistant")
+st.caption("Ask questions about your ecommerce database in plain English.")
 
-# ── Renderizar histórico ──
+# ── Render history ──
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg["role"] == "assistant":
             if show_sql and msg.get("sql"):
-                with st.expander("🔍 Query SQL"):
+                with st.expander("🔍 SQL Query"):
                     st.markdown(f'<div class="sql-block">{msg["sql"]}</div>', unsafe_allow_html=True)
             if msg.get("dataframe") is not None:
-                st.dataframe(msg["dataframe"], use_container_width=True)
+                st.dataframe(msg["dataframe"], width='stretch')
             st.markdown(msg["content"])
         else:
             st.markdown(msg["content"])
 
 # ── Input ──
-if "sugestao" in st.session_state:
-    pergunta = st.session_state.pop("sugestao")
+if "suggestion" in st.session_state:
+    question = st.session_state.pop("suggestion")
 else:
-    pergunta = st.chat_input("Ex: Qual o produto mais caro?")
+    question = st.chat_input("e.g. What is the most expensive product?")
 
-if pergunta:
-    st.session_state.messages.append({"role": "user", "content": pergunta})
+if question:
+    st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"):
-        st.markdown(pergunta)
+        st.markdown(question)
 
     with st.chat_message("assistant"):
-        with st.spinner("A pensar..."):
-            resultado = perguntar(pergunta)
+        with st.spinner("Thinking..."):
+            result = ask(question)
 
-        if resultado["erro"]:
-            st.error(f"❌ {resultado['erro']}")
+        if result["error"]:
+            st.error(f"❌ {result['error']}")
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": resultado["erro"],
+                "content": result["error"],
                 "sql": None,
                 "dataframe": None,
             })
         else:
-            if show_sql and resultado["sql"]:
-                with st.expander("🔍 Query SQL"):
-                    st.markdown(f'<div class="sql-block">{resultado["sql"]}</div>', unsafe_allow_html=True)
+            if show_sql and result["sql"]:
+                with st.expander("🔍 SQL Query"):
+                    st.markdown(f'<div class="sql-block">{result["sql"]}</div>', unsafe_allow_html=True)
 
             df = None
-            if resultado["colunas"] and resultado["linhas"]:
-                df = pd.DataFrame(resultado["linhas"], columns=resultado["colunas"])
-                st.dataframe(df, use_container_width=True)
+            if result["columns"] and result["rows"]:
+                df = pd.DataFrame(result["rows"], columns=result["columns"])
+                st.dataframe(df, width='stretch')
 
-            st.markdown(resultado["resposta"])
+            st.markdown(result["answer"])
 
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": resultado["resposta"],
-                "sql": resultado["sql"],
+                "content": result["answer"],
+                "sql": result["sql"],
                 "dataframe": df,
             })

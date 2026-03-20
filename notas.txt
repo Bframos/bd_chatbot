@@ -1,0 +1,7 @@
+1-Se escrever nome de produto de forma diferente (e.g MacBook em vez de MacBook Air M2), ele não chega lá
+    Sol= Usar o ILIKE '%value%
+
+2- Usamos o Redis para aumentar a velocidade em perguntas repetidos
+Optámos por fazer cache pela pergunta porque o bottleneck do sistema é o LLM, não a base de dados. 
+Ao cachear pela pergunta, um cache hit evita completamente a chamada ao LLM — que é a operação mais lenta e mais cara. 
+Se cacheássemos pelo SQL, o LLM seria sempre invocado para gerar a query, e só pouparíamos a execução no PostgreSQL

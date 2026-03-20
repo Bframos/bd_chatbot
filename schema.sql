@@ -1,5 +1,5 @@
--- Schema da Base de Dados Ecommerce
--- Este ficheiro é usado pelo chatbot para dar contexto ao modelo LLM
+-- Ecommerce Database Schema
+-- This file is used by the chatbot to provide context to the LLM
 
 Tables:
 - categories(id, name, description)

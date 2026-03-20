@@ -1,0 +1,19 @@
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors (spacing, indentation)
+    "F",   # pyflakes (unused imports, undefined variables)
+    "I",   # isort (import ordering)
+]
+ignore = [
+    "E501",  # line too long — handled by line-length above
+]
+
+# Files to exclude from linting
+exclude = [
+    ".venv",
+    "venv",
+    "__pycache__",
+]
