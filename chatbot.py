@@ -5,10 +5,9 @@ from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 from langchain_community.utilities import SQLDatabase
 from sqlalchemy import text
-import sql_validator
-
 
 import cache
+import sql_validator
 
 load_dotenv()
 
