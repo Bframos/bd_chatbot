@@ -102,7 +102,8 @@ if question:
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            result = ask(question)
+            result = ask(question, history=st.session_state.messages)
+
 
         if result["error"]:
             st.error(f"❌ {result['error']}")
@@ -124,9 +125,13 @@ if question:
 
             st.markdown(result["answer"])
 
+            assistant_content = result["answer"]
+            if result["sql"]:
+                assistant_content = f"SQL used: {result['sql']}\n\nAnswer: {result['answer']}"
+            
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": result["answer"],
+                "content": assistant_content,
                 "sql": result["sql"],
                 "dataframe": df,
             })

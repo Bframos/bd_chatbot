@@ -5,3 +5,16 @@
 Optámos por fazer cache pela pergunta porque o bottleneck do sistema é o LLM, não a base de dados. 
 Ao cachear pela pergunta, um cache hit evita completamente a chamada ao LLM — que é a operação mais lenta e mais cara. 
 Se cacheássemos pelo SQL, o LLM seria sempre invocado para gerar a query, e só pouparíamos a execução no PostgreSQL
+
+3-Query validation — impedir que o modelo gere queries destrutivas (DROP, DELETE, UPDATE).
+Why sqlglot instead of a simple blacklist?
+    A blacklist like checking for 'DROP' or 'DELETE' can be bypassed with
+    mixed casing (e.g. 'DrOp') or comments (e.g. 'DR--\nOP').
+    sqlglot parses the SQL properly and checks the actual statement type,
+    making it much harder to bypass.
+
+4-Modeol não guarda contexto das perguntas anteriores
+Passámos o st.session_state.messages ao ask() e 
+depois ao generate_sql(). Assim o modelo recebe as 
+últimas trocas da conversa e tem contexto para 
+perceber referências como "their" ou "them".

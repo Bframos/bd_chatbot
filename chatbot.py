@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 from langchain_community.utilities import SQLDatabase
 from sqlalchemy import text
+import sql_validator
+
 
 import cache
 
@@ -35,26 +37,35 @@ with open(SCHEMA_FILE, "r", encoding="utf-8") as f:
 #======================================================================================================================
 
 
-def generate_sql(question: str) -> str:
+def generate_sql(question: str, history: list = []) -> str:
+    # Build conversation history for the model
+    # Only include user questions and assistant SQL responses
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a PostgreSQL expert. Given a question and a database schema, "
+                "output ONLY a valid SQL query inside a ```sql block. No explanations.\n\n"
+                "Important rules:\n"
+                "- For text fields (names, descriptions, emails), ALWAYS use ILIKE '%value%' instead of =\n"
+                "- Never use exact match (=) for text searches\n"
+                "- When the user asks for 'the most/least/best/worst', never use LIMIT 1 — instead use DENSE_RANK() to handle ties correctly\n\n"
+                f"Schema:\n{SCHEMA}"
+            ),
+        },
+    ]
+
+    # Add conversation history — last 5 exchanges max
+    for msg in history[-10:]:  # 10 = 5 exchanges (user + assistant each)
+        if msg["role"] in ("user", "assistant"):
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Add current question
+    messages.append({"role": "user", "content": f"Question: {question}\n\nSQL query:"})
+
     response = client.chat.completions.create(
         model=MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a PostgreSQL expert. Given a question and a database schema, "
-                    "output ONLY a valid SQL query inside a ```sql block. No explanations.\n\n"
-                    "Important rules:\n"
-                    "- For text fields (names, descriptions, emails), ALWAYS use ILIKE '%value%' instead of =\n"
-                    "- Never use exact match (=) for text searches\n\n"
-                    "- When the user asks for 'the most/least/best/worst', never use LIMIT 1 — instead use DENSE_RANK() to handle ties correctly and return all tied results\n"                    f"Schema:\n{SCHEMA}"
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"Question: {question}\n\nSQL query:"
-            }
-        ],
+        messages=messages,
         max_tokens=256,
         temperature=0.05,
     )
@@ -93,20 +104,23 @@ def format_table(columns, rows) -> str:
     return f"{row_str(columns)}\n{sep}\n" + "\n".join(row_str(r) for r in rows)
 
 
-def ask(question: str) -> dict:
-    # 1. Check cache first — avoids calling the LLM for repeated questions
+def ask(question: str, history: list = []) -> dict:
     cached = cache.get(question)
     if cached:
         cached["from_cache"] = True
         return cached
 
-    # 2. Cache miss — go through the full pipeline
     try:
-        raw = generate_sql(question)
+        raw = generate_sql(question, history)  # pass history here
         sql = extract_sql(raw)
 
         if not sql:
             return {"sql": None, "columns": [], "rows": [], "answer": raw, "error": None, "from_cache": False}
+
+        try:
+            sql_validator.validate(sql)
+        except sql_validator.UnsafeSQLError as e:
+            return {"sql": sql, "columns": [], "rows": [], "answer": "", "error": str(e), "from_cache": False}
 
         columns, rows = execute_query(sql)
         table_txt = "\n".join([" | ".join(str(v) for v in row) for row in rows]) or "(no results)"
@@ -123,7 +137,6 @@ def ask(question: str) -> dict:
         answer = resp.choices[0].message.content
         result = {"sql": sql, "columns": columns, "rows": rows, "answer": answer, "error": None, "from_cache": False}
 
-        # 3. Store in cache for future requests
         cache.set(question, result)
         return result
 
